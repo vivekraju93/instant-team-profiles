@@ -1,13 +1,118 @@
+import json
+import re
+import anthropic
 import streamlit as st
-from profile_processor import process_profile
+from datetime import date
 
+
+def process_profile(profile_text: str, api_key: str, url: str = None) -> dict:
+    client = anthropic.Anthropic(api_key=api_key)
+    today_str = date.today().strftime("%B %d, %Y")
+    url_context = f"\nLinkedIn URL: {url}" if url else ""
+
+    system_prompt = (
+        "You are an expert at analysing LinkedIn profiles for investor pitch deck team slides. "
+        "Always respond with a single valid JSON object and nothing else."
+    )
+
+    user_prompt = f"""Analyse this LinkedIn profile and return a JSON object for a pitch deck team slide.
+
+Today's date: {today_str}{url_context}
+
+LinkedIn Profile Text:
+---
+{profile_text}
+---
+
+Return ONLY a valid JSON object with this exact structure (no markdown, no explanation):
+{{
+  "designation": "Current job title only — never include the company name",
+  "years_experience": "X years",
+  "first_job_date": "Month Year",
+  "one_line_summary": "5–8 word punchy summary highlighting pedigree",
+  "experience_highlights": [
+    {{"company": "Company Name", "role": "Job Title"}},
+    {{"company": "Company Name", "role": "Job Title"}}
+  ],
+  "education": [
+    {{"degree": "Degree, Field", "institution": "Institution Name"}},
+    {{"degree": "Degree, Field", "institution": "Institution Name"}}
+  ]
+}}
+
+RULES — follow exactly:
+
+DESIGNATION
+- Job title only. Never include the company name.
+- Correct: "Co-Founder & CEO"   Wrong: "Co-Founder & CEO at Acme Corp"
+
+YEARS_EXPERIENCE
+- Count from the START DATE of their very first job to today ({today_str}).
+- Round to the nearest whole year (8.5 → 9). Format as "X years".
+- If exact start date is missing, estimate from context (graduation year, other dates).
+
+FIRST_JOB_DATE
+- Month and year of their very first job, e.g. "June 2010".
+
+ONE_LINE_SUMMARY
+- 5–8 words. Specific and punchy — name well-known employers, # of exits/IPOs, prestigious degrees, or scale of impact.
+- Good: "Ex-McKinsey partner, scaled 3 unicorns" / "MIT PhD, 2 exits, built Google Maps"
+- Bad: "Experienced leader with 10+ years" (too vague)
+
+EXPERIENCE_HIGHLIGHTS
+- Include ONLY companies that satisfy BOTH:
+  1. WELL-KNOWN: Fortune 500, major tech (Google, Meta, Apple, Microsoft, Amazon, Netflix,
+     Uber, Airbnb, Stripe, Palantir, Spotify, Twitter/X, Snap, LinkedIn, Salesforce, Oracle,
+     SAP), top consulting (McKinsey, BCG, Bain, Deloitte, Accenture, Oliver Wyman),
+     top banks/finance (Goldman Sachs, JPMorgan, Morgan Stanley, Citi, BlackRock,
+     Bridgewater, Sequoia, a16z, SoftBank), well-known unicorns with exits,
+     military officer roles, prominent government, major media (NYT, BBC, Bloomberg).
+  2. SENIOR / MANAGERIAL: C-suite (CEO/CTO/COO/CFO/CMO/CPO/CRO), VP/SVP/EVP,
+     Director/Senior Director/Managing Director, Senior [any], Lead [any],
+     Principal [any], Head of [any], General Manager, Founder/Co-Founder,
+     Partner (consulting/law/VC).
+     EXCLUDE: Intern, Analyst (entry-level), Associate (entry-level IC),
+     Junior [any], Trainee, Engineer without Senior/Lead/Principal prefix.
+- Maximum 4 entries. Fewer is fine.
+- If nothing qualifies, return an empty array [].
+
+EDUCATION
+- Include ALL degrees (bachelor's, master's, MBA, PhD, etc.).
+- Format degree as: "MBA", "B.Tech, Computer Science", "PhD, Physics", "B.A., Economics".
+- Include all institutions regardless of prestige.
+"""
+
+    message = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=1024,
+        thinking={"type": "adaptive"},
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    raw = ""
+    for block in message.content:
+        if block.type == "text":
+            raw = block.text.strip()
+            break
+
+    if not raw:
+        raise ValueError("No response received from Claude.")
+
+    raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    raw = re.sub(r"\n?```$", "", raw).strip()
+
+    return json.loads(raw)
+
+
+# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Team Profile Generator | Deck Rooster",
     page_icon="🐓",
     layout="centered",
 )
 
-# ── Deck Rooster brand styles ────────────────────────────────────────────────
+# ── Deck Rooster brand styles ─────────────────────────────────────────────────
 st.markdown(
     """
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -29,14 +134,12 @@ st.markdown(
 
     .stApp { background-color: var(--dr-off-white); }
 
-    /* Headings */
     h1, h2, h3, h4,
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
         font-family: 'Plus Jakarta Sans', Arial, sans-serif !important;
         color: var(--dr-forest) !important;
     }
 
-    /* Primary button — green pill */
     .stButton > button {
         background-color: var(--dr-green) !important;
         color: #ffffff !important;
@@ -54,7 +157,6 @@ st.markdown(
         opacity: 0.45 !important;
     }
 
-    /* Text inputs & textareas */
     .stTextInput  > div > div > input,
     .stTextArea   > div > div > textarea {
         border-radius: 8px !important;
@@ -69,17 +171,14 @@ st.markdown(
         box-shadow: 0 0 0 2px rgba(22,198,79,0.18) !important;
     }
 
-    /* Expander */
     details > summary,
     .streamlit-expanderHeader {
         font-family: 'Plus Jakarta Sans', Arial, sans-serif !important;
         color: var(--dr-onyx) !important;
     }
 
-    /* Divider */
     hr { border-color: var(--dr-taupe) !important; }
 
-    /* Custom label above result fields */
     .dr-label {
         font-family: 'Plus Jakarta Sans', Arial, sans-serif;
         font-size: 0.7rem;
@@ -90,7 +189,6 @@ st.markdown(
         margin: 1.1rem 0 0.15rem;
     }
 
-    /* Photo / info note box */
     .dr-note {
         background: var(--dr-classic);
         border-left: 3px solid var(--dr-green);
@@ -117,7 +215,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Header ───────────────────────────────────────────────────────────────────
+# ── Header ────────────────────────────────────────────────────────────────────
 st.markdown(
     """
     <div style="text-align:center; padding: 2rem 0 1.5rem;">
@@ -196,7 +294,6 @@ if generate and profile_text.strip():
         unsafe_allow_html=True,
     )
 
-    # Designation + Years
     c1, c2 = st.columns(2)
     with c1:
         st.markdown('<p class="dr-label">Designation</p>', unsafe_allow_html=True)
@@ -210,12 +307,10 @@ if generate and profile_text.strip():
         st.text_input("_yrs", value=yrs_label,
                       label_visibility="collapsed", key="r_years")
 
-    # One-line summary
     st.markdown('<p class="dr-label">One-Line Summary</p>', unsafe_allow_html=True)
     st.text_input("_sum", value=result["one_line_summary"],
                   label_visibility="collapsed", key="r_summary")
 
-    # Experience highlights
     st.markdown(
         '<p class="dr-label">Experience Highlights '
         '<span style="font-weight:400;text-transform:none;letter-spacing:0;">'
@@ -234,7 +329,6 @@ if generate and profile_text.strip():
     else:
         st.caption("No prominent prior roles to highlight.")
 
-    # Education
     st.markdown('<p class="dr-label">Education</p>', unsafe_allow_html=True)
     for i, edu in enumerate(result.get("education", [])):
         st.text_input(
@@ -244,7 +338,6 @@ if generate and profile_text.strip():
             key=f"r_edu_{i}",
         )
 
-    # Photo note
     st.markdown(
         """
         <div class="dr-note">
