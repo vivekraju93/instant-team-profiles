@@ -37,7 +37,7 @@ st.markdown(
     }
 
     /* Primary button — green pill */
-    .stButton > button[kind="primary"] {
+    .stButton > button {
         background-color: var(--dr-green) !important;
         color: #ffffff !important;
         border: none !important;
@@ -47,10 +47,10 @@ st.markdown(
         padding: 0.55rem 2rem !important;
         transition: background-color 0.2s ease;
     }
-    .stButton > button[kind="primary"]:hover:not(:disabled) {
+    .stButton > button:hover:not(:disabled) {
         background-color: var(--dr-sacramento) !important;
     }
-    .stButton > button[kind="primary"]:disabled {
+    .stButton > button:disabled {
         opacity: 0.45 !important;
     }
 
@@ -172,14 +172,16 @@ if generate and profile_text.strip():
     with st.spinner("Analysing profile with Claude…"):
         try:
             api_key = st.secrets["ANTHROPIC_API_KEY"]
-            result = process_profile(profile_text, api_key, url or None)
-        except KeyError:
+        except (KeyError, FileNotFoundError):
             st.error(
                 "API key not configured. "
-                "Add `ANTHROPIC_API_KEY` to your Streamlit secrets "
-                "(`.streamlit/secrets.toml` locally, or Settings → Secrets on Streamlit Cloud)."
+                "Add `ANTHROPIC_API_KEY` to your Streamlit secrets — "
+                "`.streamlit/secrets.toml` locally, or Settings → Secrets on Streamlit Cloud."
             )
             st.stop()
+
+        try:
+            result = process_profile(profile_text, api_key, url or None)
         except Exception as exc:
             st.error(f"Something went wrong: {exc}")
             st.stop()

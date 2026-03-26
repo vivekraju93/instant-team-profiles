@@ -108,6 +108,7 @@ EDUCATION
         raise ValueError("No response received from Claude.")
 
     # Strip markdown code fences if present (e.g. ```json ... ```)
-    raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("`").strip()
+    raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    raw = re.sub(r"\n?```$", "", raw).strip()
 
     return json.loads(raw)
